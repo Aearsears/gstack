@@ -2115,14 +2115,19 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('rm -f "$target"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro', () => {
+  test('setup supports --host auto|claude|codex|copilot|kiro', () => {
     expect(setupContent).toContain('--host');
+<<<<<<< HEAD
     expect(setupContent).toContain('claude|codex|kiro|factory|auto');
+=======
+    expect(setupContent).toContain('claude|codex|copilot|kiro|auto');
+>>>>>>> ridermw/add-copilot-cli-support
   });
 
-  test('auto mode detects claude, codex, and kiro binaries', () => {
+  test('auto mode detects claude, codex, copilot, and kiro binaries', () => {
     expect(setupContent).toContain('command -v claude');
     expect(setupContent).toContain('command -v codex');
+    expect(setupContent).toContain('command -v copilot');
     expect(setupContent).toContain('command -v kiro-cli');
   });
 

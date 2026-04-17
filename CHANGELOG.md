@@ -3,12 +3,14 @@
 ## [0.18.1.0] - 2026-04-16
 
 ### Fixed
+
 - **`/open-gstack-browser` actually stays open now.** If you ran `/open-gstack-browser` or `$B connect` and your browser vanished roughly 15 seconds later, this was why: a watchdog inside the browse server was polling the CLI process that spawned it, and when the CLI exited (which it does, immediately, right after launching the browser), the watchdog said "orphan!" and killed everything. The fix disables that watchdog for headed mode, both in the CLI (always set `BROWSE_PARENT_PID=0` for headed launches) and in the server (skip the watchdog entirely when `BROWSE_HEADED=1`). Two layers of defense in case a future launcher forgets to pass the env var. Thanks to @rocke2020 (#1020), @sanghyuk-seo-nexcube (#1018), @rodbland2021 (#1012), and @jbetala7 (#986) for independently diagnosing this and sending in clean, well-documented fixes.
 - **Closing the headed browser window now cleans up properly.** Before this release, clicking the X on the GStack Browser window skipped the server's cleanup routine and exited the process directly. That left behind stale sidebar-agent processes polling a dead server, unsaved chat session state, leftover Chromium profile locks (which cause "profile in use" errors on the next `$B connect`), and a stale `browse.json` state file. Now the disconnect handler routes through the full `shutdown()` path first, cleans everything, and then exits with code 2 (which still distinguishes user-close from crash).
 - **CI/Claude Code Bash calls can now share a persistent headless server.** The headless spawn path used to hardcode the CLI's own PID as the watchdog target, ignoring `BROWSE_PARENT_PID=0` even if you set it in your environment. Now `BROWSE_PARENT_PID=0 $B goto https://...` keeps the server alive across short-lived CLI invocations, which is what multi-step workflows (CI matrices, Claude Code's Bash tool, cookie picker flows) actually want.
 - **`SIGTERM` / `SIGINT` shutdown now exits with code 0 instead of 1.** Regression caught during /ship's adversarial review: when `shutdown()` started accepting an `exitCode` argument, Node's signal listeners silently passed the signal name (`'SIGTERM'`) as the exit code, which got coerced to `NaN` and used `1`. Wrapped the listeners so they call `shutdown()` with no args. Your `Ctrl+C` now exits clean again.
 
 ### For contributors
+
 - `test/relink.test.ts` no longer flakes under parallel test load. The 23 tests in that file each shell out to `gstack-config` + `gstack-relink` (bash subprocess work), and under `bun test` with other suites running, each test drifted ~200ms past Bun's 5s default. Wrapped `test` to default the per-test timeout to 15s with `Object.assign` preserving `.only`/`.skip`/`.each` sub-APIs.
 - `BrowserManager` gained an `onDisconnect` callback (wired by `server.ts` to `shutdown(2)`), replacing the direct `process.exit(2)` in the disconnect handler. The callback is wrapped with try/catch + Promise rejection handling so a rejecting cleanup path still exits the process instead of leaving a live server attached to a dead browser.
 - `shutdown()` now accepts an optional `exitCode: number = 0` parameter, used by the disconnect path (exit 2) and the signal path (default 0). Same cleanup code, two call sites, distinct exit codes.
@@ -17,17 +19,20 @@
 ## [0.18.0.1] - 2026-04-16
 
 ### Fixed
+
 - **Windows install no longer fails with a build error.** If you installed gstack on Windows (or a fresh Linux box), `./setup` was dying with `cannot write multiple output files without an output directory`. The Windows-compat Node server bundle now builds cleanly, so `/browse`, `/canary`, `/pair-agent`, `/open-gstack-browser`, `/setup-browser-cookies`, and `/design-review` all work on Windows again. If you were stuck on gstack v0.15.11-era features without knowing it, this is why. Thanks to @tomasmontbrun-hash (#1019) and @scarson (#1013) for independently tracking this down, and to the issue reporters on #1010 and #960.
-- **CI stops lying about green builds.** The `build` and `test` scripts in `package.json` had a shell precedence trap where a trailing `|| true` swallowed failures from the *entire* command chain, not just the cleanup step it was meant for. That's how the Windows build bug above shipped in the first place — CI ran the build, the build failed, and CI reported success anyway. Now build and test failures actually fail. Silent CI is the worst kind of CI.
+- **CI stops lying about green builds.** The `build` and `test` scripts in `package.json` had a shell precedence trap where a trailing `|| true` swallowed failures from the _entire_ command chain, not just the cleanup step it was meant for. That's how the Windows build bug above shipped in the first place — CI ran the build, the build failed, and CI reported success anyway. Now build and test failures actually fail. Silent CI is the worst kind of CI.
 - **`/pair-agent` on Windows surfaces install problems at install time, not tunnel time.** `./setup` now verifies Node can load `@ngrok/ngrok` on Windows, just like it already did for Playwright. If the native binary didn't install, you find out now instead of the first time you try to pair an agent.
 
 ### For contributors
+
 - New `browse/test/build.test.ts` validates `server-node.mjs` is well-formed ES module syntax and that `@ngrok/ngrok` was actually externalized (not inlined). Gracefully skips when no prior build has run.
 - Added a policy comment in `browse/scripts/build-node-server.sh` explaining when and why to externalize a dependency. If you add a dep with a native addon or a dynamic `await import()`, the comment tells you where to plug it in.
 
 ## [0.18.0.0] - 2026-04-15
 
 ### Added
+
 - **Confusion Protocol.** Every workflow skill now has an inline ambiguity gate. When Claude hits a decision that could go two ways (which architecture? which data model? destructive operation with unclear scope?), it stops and asks instead of guessing. Scoped to high-stakes decisions only, so it doesn't slow down routine coding. Addresses Karpathy's #1 AI coding failure mode.
 - **Hermes host support.** gstack now generates skill docs for [Hermes Agent](https://github.com/nousresearch/hermes-agent) with proper tool rewrites (`terminal`, `read_file`, `patch`, `delegate_task`). `./setup --host hermes` prints integration instructions.
 - **GBrain host + brain-first resolver.** GBrain is a "mod" for gstack. When installed, your coding skills become brain-aware: they search your brain for relevant context before starting and save results to your brain after finishing. 10 skills are now brain-aware: /office-hours, /investigate, /plan-ceo-review, /retro, /ship, /qa, /design-review, /plan-eng-review, /cso, and /design-consultation. Compatible with GBrain >= v0.10.0.
@@ -38,6 +43,7 @@
 - **Karpathy compatibility.** README now positions gstack as the workflow enforcement layer for [Karpathy-style CLAUDE.md rules](https://github.com/forrestchang/andrej-karpathy-skills) (17K stars). Maps each failure mode to the gstack skill that addresses it.
 
 ### Changed
+
 - **CEO review HARD GATE reinforcement.** "Do NOT make any code changes. Review only." now repeats at every STOP point (12 locations), not just the top. Prompt repetition measurably reduces the "starts implementing" failure mode.
 - **Office-hours design doc visibility.** After writing the design doc, the skill now prints the full path so downstream skills (/plan-ceo-review, /plan-eng-review) can find it.
 - **Investigate investigation history.** Each investigation now logs to the learnings system with `type: "investigation"` and affected file paths. Future investigations on the same files surface prior root causes automatically. Recurring bugs in the same area = architectural smell.
@@ -48,6 +54,7 @@
 ## [0.17.0.0] - 2026-04-14
 
 ### Added
+
 - **UX behavioral foundations.** Every design skill now thinks about how users actually behave, not just how the interface looks. A shared `{{UX_PRINCIPLES}}` resolver distills Steve Krug's "Don't Make Me Think" into actionable guidance: scanning behavior, satisficing, the goodwill reservoir, navigation wayfinding, and the trunk test. Injected into /design-html, /design-shotgun, /design-review, and /plan-design-review. Your design reviews now catch "this navigation is confusing" problems, not just "the contrast ratio is 4.3:1."
 - **6 usability tests woven into design-review.** The methodology now runs the Trunk Test (can you tell what site this is, what page you're on, and how to search?), 3-Second Scan (what do users see first?), Page Area Test (can you name each section's purpose?), Happy Talk Detection with word count (how much of this page is "blah blah blah"?), Mindless Choice Audit (does every click feel obvious?), and Goodwill Reservoir tracking with a visual dashboard (what depletes the user's patience at each step?).
 - **First-person narration mode.** Design review reports now read like a usability consultant watching someone use your site: "I'm looking at this page... my eye goes to the logo, then a wall of text I skip entirely. Wait, is that a button?" With anti-slop guardrail: if the agent can't name the specific element, it's generating platitudes.
@@ -56,17 +63,20 @@
 - **Token ceiling enforcement.** `gen-skill-docs` now warns if any generated SKILL.md exceeds 100KB (~25K tokens). Catches prompt bloat before it degrades agent performance.
 
 ### Changed
+
 - **Krug's always/never rules** added to the design hard rules: never placeholder-as-label, never floating headings, always visited link distinction, never sub-16px body text. These join the existing AI slop blacklist as mechanical checks.
 - **Plan-design-review references** now include Steve Krug, Ginny Redish (Letting Go of the Words), and Caroline Jarrett (Forms that Work) alongside Rams, Norman, and Nielsen.
 
 ## [0.16.4.0] - 2026-04-13
 
 ### Added
+
 - **Cookie origin pinning.** When you import cookies for specific domains, JS execution is now blocked on pages that don't match those domains. This prevents the attack where a prompt injection navigates to an attacker's site and runs `document.cookie` to steal your imported cookies. Subdomain matching works automatically (importing `.github.com` allows `api.github.com`). When no cookies are imported, everything works as before. 3 PRs from @halbert04.
 - **Command audit log.** Every browse command now gets a persistent forensic trail in `~/.gstack/.browse/browse-audit.jsonl`. Timestamp, command, args, page origin, duration, status, error, and whether cookies were imported. Append-only, never truncated, survives server restarts. Best-effort writes that never block command execution. From @halbert04.
 - **Cookie domain tracking.** gstack now tracks which domains cookies were imported from. Foundation for origin pinning above. Direct imports via `--domain` track automatically. New `--all` flag makes full-browser cookie import an explicit opt-in instead of the default.
 
 ### Fixed
+
 - **Symlink bypass in file writes.** `validateOutputPath` only checked the parent directory for symlinks, not the file itself. A symlink at `/tmp/evil.png` pointing to `/etc/crontab` passed validation because the parent `/tmp` was safe. Now checks the file with `lstatSync` before writing. From @Hybirdss.
 - **Cookie-import path bypass.** Two issues: relative paths bypassed all validation (the `path.isAbsolute()` gate let `sensitive-file.json` through), and symlink resolution was missing (`path.resolve` without `realpathSync`). Now resolves to absolute, resolves symlinks, and checks against safe directories. From @urbantech.
 - **Shell injection in setup scripts.** `gstack-settings-hook` interpolated file paths directly into `bun -e` JavaScript blocks. A path with quotes broke the JS string context. Now uses environment variables (`process.env`). Systematic audit confirmed only this script was vulnerable. From @garagon.
@@ -79,6 +89,7 @@
 - **Hardcoded /tmp in cookie import.** `cookie-import-browser` used `/tmp` directly instead of `os.tmpdir()`, breaking Windows support.
 
 ### Security
+
 - Closed 14 security issues (#665-#675, #566, #479, #467, #545) that were fixed in prior waves but still open on GitHub.
 - Closed 17 community security PRs with thank-you messages and commit references.
 - Security wave 3: 12 fixes, 7 contributors. Big thanks to @Hybirdss, @urbantech, @garagon, @Ziadstr, @halbert04, @mehmoodosman, @Gonzih.
@@ -86,9 +97,11 @@
 ## [0.16.3.0] - 2026-04-09
 
 ### Changed
+
 - **AI slop cleanup.** Ran [slop-scan](https://github.com/benvinegar/slop-scan) and dropped from 100 findings (2.38 score/file) to 90 findings (1.96 score/file). The good part: `safeUnlink()` and `safeKill()` utilities that catch real bugs (swallowed EPERM in shutdown was a silent data loss risk). `safeUnlinkQuiet()` for cleanup paths where throwing is worse than swallowing. `isProcessAlive()` extracted to a shared module with Windows support. Redundant `return await` removed. Typed exception catches (TypeError, DOMException, ENOENT) replace empty catches in system boundary code. The part we tried and reverted: string-matching on error messages was brittle, extension catch-and-log was correct as-is, pass-through wrapper comments were linter gaming. We are AI-coded and proud of it. The goal is code quality, not hiding.
 
 ### Added
+
 - **`bun run slop:diff`** shows only NEW slop-scan findings introduced on your branch vs main. Line-number-insensitive comparison so shifted code doesn't create false positives. Runs automatically after `bun test`.
 - **Slop-scan usage guidelines** in CLAUDE.md: what to fix (genuine quality) vs what NOT to fix (linter gaming). Includes utility function reference table.
 - **Design doc** for future slop-scan integration in `/review` and `/ship` skills (`docs/designs/SLOP_SCAN_FOR_REVIEW_SHIP.md`).
@@ -96,6 +109,7 @@
 ## [0.16.2.0] - 2026-04-09
 
 ### Added
+
 - **Office hours now remembers you.** The closing experience adapts based on how many sessions you've done. First time: full YC plea and founder resources. Sessions 2-3: "Welcome back. Last time you were working on [your project]. How's it going?" Sessions 4-7: arc-level callbacks across your whole journey, accumulated signal visibility, and an auto-generated Builder Journey narrative. Sessions 8+: the data speaks for itself.
 - **Builder profile** tracks your office hours journey in a single append-only session log. Signals, design docs, assignments, topics, and resources shown, all in one file. No split-brain state, no separate config keys.
 - **Builder-to-founder nudge** for repeat builder-mode users who accumulate founder signals. Evidence-gated: only triggers when you've shown 5+ signals across 3+ builder sessions. Not a pitch. An observation.
@@ -104,16 +118,19 @@
 - **Global resource dedup.** Resource links now dedup globally (not per-project), so switching repos doesn't reset your watch history. Each link shows only once, ever.
 
 ### Fixed
+
 - package.json version now stays in sync with VERSION file.
 
 ## [0.16.1.0] - 2026-04-08
 
 ### Fixed
+
 - Cookie picker no longer leaks the browse server auth token. Previously, opening the cookie picker page exposed the master bearer token in the HTML source, letting any local process extract it and execute arbitrary JavaScript in your browser session. Now uses a one-time code exchange with an HttpOnly session cookie. The token never appears in HTML, URLs, or browser history. (Reported by Horoshi at Vagabond Research, CVSS 7.8)
 
 ## [0.16.0.0] - 2026-04-07
 
 ### Added
+
 - **Browser data platform.** Six new browse commands that turn gstack browser from "a thing that clicks buttons" into a full scraping and data extraction tool for AI agents.
 - `media` command: discover every image, video, and audio element on a page. Returns URLs, dimensions, srcset, lazy-load state, and detects HLS/DASH streams. Filter with `--images`, `--videos`, `--audio`, or scope with a CSS selector.
 - `data` command: extract structured data embedded in pages. JSON-LD (product prices, recipes, events), Open Graph, Twitter Cards, and meta tags. One command gives you what used to take 50 lines of DOM scraping.
@@ -126,24 +143,29 @@
 - `GET /file` endpoint: remote paired agents can now retrieve downloaded files (images, scraped media, screenshots) over HTTP. TEMP_DIR only to prevent project file exfiltration. Bearer token auth, MIME detection, zero-copy streaming via `Bun.file()`.
 
 ### Changed
+
 - Paired agents now get full access by default (read+write+admin+meta). The trust boundary is the pairing ceremony, not the scope. An agent that can click any button doesn't gain meaningful attack surface from also being able to run `js`. Browser-wide destructive commands (stop, restart, disconnect) moved to new `control` scope, still opt-in via `--control`.
 - Path validation extracted to shared `path-security.ts` module. Was duplicated across three files with slightly different implementations. Now one source of truth with `validateOutputPath`, `validateReadPath`, and `validateTempPath`.
 
 ## [0.15.16.0] - 2026-04-06
 
 ### Added
+
 - Per-tab state isolation via TabSession. Each browser tab now has its own ref map, snapshot baseline, and frame context. Previously these were global on BrowserManager, meaning snapshot refs from one tab could collide with another. This is the foundation for parallel multi-tab operations.
 - Batch endpoint documentation in BROWSER.md with API shape, design decisions, and usage patterns.
 
 ### Changed
+
 - Handler signatures across read-commands, write-commands, meta-commands, and snapshot now accept TabSession for per-tab operations and BrowserManager for global operations. This separation makes it explicit which operations are tab-scoped vs browser-scoped.
 
 ### Fixed
+
 - codex-review E2E test was copying the full 55KB SKILL.md (1,075 lines), burning 8 Read calls just to consume it and exhausting the 15-turn budget before reaching the actual review. Now extracts only the review-relevant section (~6KB/148 lines), cutting Read calls from 8 to 1. Test goes from perpetual timeout to passing in 141s.
 
 ## [0.15.15.1] - 2026-04-06
 
 ### Fixed
+
 - pair-agent tunnel drops after 15 seconds. The browse server was monitoring its parent process ID and self-terminating when the CLI exited. Now pair-agent sessions disable the parent watchdog so the server and tunnel stay alive.
 - `$B connect` crashes with "domains is not defined". A stray variable reference in the headed-mode status check prevented GStack Browser from initializing properly.
 
@@ -152,6 +174,7 @@
 Community security wave: 8 PRs from 4 contributors, every fix credited as co-author.
 
 ### Added
+
 - Cookie value redaction for tokens, API keys, JWTs, and session secrets in `browse cookies` output. Your secrets no longer appear in Claude's context.
 - IPv6 ULA prefix blocking (fc00::/7) in URL validation. Covers the full unique-local range, not just the literal `fd00::`. Hostnames like `fcustomer.com` are not false-positived.
 - Per-tab cancel signaling for sidebar agents. Stopping one tab's agent no longer kills all tabs.
@@ -167,6 +190,7 @@ Community security wave: 8 PRs from 4 contributors, every fix credited as co-aut
 - Supabase migration 003: column-level GRANT restricts anon UPDATE to (last_seen, gstack_version, os) only.
 
 ### Fixed
+
 - Windows: `extraEnv` now passes through to the Windows launcher (was silently dropped).
 - Windows: welcome page serves inline HTML instead of `about:blank` redirect (fixes ERR_UNSAFE_REDIRECT).
 - Headed mode: auth token returned even without Origin header (fixes Playwright Chromium extensions).
@@ -178,6 +202,7 @@ Community security wave: 8 PRs from 4 contributors, every fix credited as co-aut
 - SIGTERM/SIGKILL escalation in sidebar agent timeout handler (was bare `kill()`).
 
 ### For contributors
+
 - Queue files created with 0o700/0o600 permissions (server, CLI, sidebar-agent).
 - `escapeRegExp` utility exported from meta-commands.
 - State load filters cookies from localhost, .internal, and metadata domains.
@@ -246,17 +271,21 @@ When you share your browser with another AI agent via `/pair-agent`, that agent 
 ## [0.15.11.0] - 2026-04-05
 
 ### Changed
+
 - `/ship` re-runs now execute every verification step (tests, coverage audit, review, adversarial, TODOS, document-release) regardless of prior runs. Only actions (push, PR creation, VERSION bump) are idempotent. Re-running `/ship` means "run the whole checklist again."
 - `/ship` now runs the full Review Army specialist dispatch (testing, maintainability, security, performance, data-migration, api-contract, design, red-team) during pre-landing review, matching `/review`'s depth.
 
 ### Added
+
 - Cross-review finding dedup in `/ship`: findings the user already skipped in a prior `/review` or `/ship` are automatically suppressed on re-run (unless the relevant code changed).
 - PR body refresh after `/document-release`: the PR body is re-edited to include the docs commit, so it always reflects the truly final state.
 
 ### Fixed
+
 - Review Army diff size heuristic now counts insertions + deletions (was insertions-only, which missed deletion-heavy refactors).
 
 ### For contributors
+
 - Extracted cross-review dedup to shared `{{CROSS_REVIEW_DEDUP}}` resolver (DRY between `/review` and `/ship`).
 - Review Army step numbers adapt per-skill via `ctx.skillName` (ship: 3.55/3.56, review: 4.5/4.6), including prose references.
 - Added 3 regression guard tests for new ship template content.
@@ -333,7 +362,7 @@ Fourteen fixes for the security audit (#783). Design server no longer binds all 
 - **Prompt injection defense in design feedback.** User feedback is now wrapped in XML trust boundary markers with tag escaping. Accumulated feedback capped to last 5 iterations to limit poisoning.
 - **File and directory permissions hardened.** All ~/.gstack/ dirs now created with mode 0o700, files with 0o600. Setup script sets umask 077. Auth tokens, chat history, and browser logs no longer world-readable.
 - **TOCTOU race in setup symlink creation.** Removed existence check before mkdir -p (idempotent). Validates target isn't a symlink before creating the link.
-- **CORS wildcard removed.** Browse server no longer sends Access-Control-Allow-Origin: *. Chrome extension uses manifest host_permissions and isn't affected. Blocks malicious websites from making cross-origin requests.
+- **CORS wildcard removed.** Browse server no longer sends Access-Control-Allow-Origin: \*. Chrome extension uses manifest host_permissions and isn't affected. Blocks malicious websites from making cross-origin requests.
 - **Cookie picker auth mandatory.** Previously skipped auth when authToken was undefined. Now always requires Bearer token for all data/action routes.
 - **/health token gated on extension Origin.** Auth token only returned when request comes from chrome-extension:// origin. Prevents token leak when browse server is tunneled.
 - **DNS rebinding protection checks IPv6.** AAAA records now validated alongside A records. Blocks fe80:: link-local addresses.
@@ -1287,6 +1316,22 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 - Ubicloud runners at ~$0.006/run (10x cheaper than GitHub standard runners)
 - `workflow_dispatch` trigger for manual re-runs
 
+## [0.11.10.0] - 2026-03-23 — Copilot CLI Support
+
+### Added
+
+- **gstack now works with GitHub Copilot CLI.** Run `./setup --host copilot` and all 28 skills install to `~/.copilot/skills/`. Works the same as Codex — skills live in `.agents/skills/` and are discovered automatically.
+- **Auto-detection finds Copilot CLI.** `./setup --host auto` now detects `copilot` alongside Claude Code, Codex, and Kiro. Install once, works everywhere.
+- **Session discovery includes Copilot.** The global discover tool (`bin/gstack-global-discover.ts`) scans `~/.copilot/session-state/` so `/retro` and cross-project dashboards count Copilot sessions.
+- **Health checks cover Copilot.** `bun run skill:check` and CI now verify Copilot skill freshness alongside Claude and Codex.
+
+### For contributors
+
+- Added `'copilot'` host type to `gen-skill-docs.ts`, `setup`, `gstack-global-discover.ts`, and `skill-check.ts`.
+- New E2E test infrastructure: `copilot-e2e.test.ts` and `copilot-session-runner.ts` paralleling Codex equivalents.
+- Updated `CONTRIBUTING.md` "Dual-host" → "Multi-host" with Copilot generation commands and testing guidance.
+- Targets the standalone GA Copilot CLI (`copilot` binary via `npm install -g @github/copilot`), not the legacy `gh copilot` extension.
+
 ## [0.11.9.0] - 2026-03-23 — Codex Skill Loading Fix
 
 ### Fixed
@@ -1872,6 +1917,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - **Preview pages that look like your product.** The preview page now renders realistic product mockups — dashboards with sidebar nav and data tables, marketing pages with hero sections, settings pages with forms — not just font swatches and color palettes.
 
 ## 0.5.1 — 2026-03-17
+
 - **Know where you stand before you ship.** Every `/plan-ceo-review`, `/plan-eng-review`, and `/plan-design-review` now logs its result to a review tracker. At the end of each review, you see a **Review Readiness Dashboard** showing which reviews are done, when they ran, and whether they're clean — with a clear CLEARED TO SHIP or NOT READY verdict.
 - **`/ship` checks your reviews before creating the PR.** Pre-flight now reads the dashboard and asks if you want to continue when reviews are missing. Informational only — it won't block you, but you'll know what you skipped.
 - **One less thing to copy-paste.** The SLUG computation (that opaque sed pipeline for computing `owner-repo` from git remote) is now a shared `bin/gstack-slug` helper. All 14 inline copies across templates replaced with `source <(gstack-slug)`. If the format ever changes, fix it once.
@@ -1978,6 +2024,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 ## 0.4.0 — 2026-03-16
 
 ### Added
+
 - **QA-only skill** (`/qa-only`) — report-only QA mode that finds and documents bugs without making fixes. Hand off a clean bug report to your team without the agent touching your code.
 - **QA fix loop** — `/qa` now runs a find-fix-verify cycle: discover bugs, fix them, commit, re-navigate to confirm the fix took. One command to go from broken to shipped.
 - **Plan-to-QA artifact flow** — `/plan-eng-review` writes test-plan artifacts that `/qa` picks up automatically. Your engineering review now feeds directly into QA testing with no manual copy-paste.
@@ -1992,17 +2039,20 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - 3 new snapshot tests for ref staleness.
 
 ### Changed
+
 - QA skill prompt restructured with explicit two-cycle workflow (find → fix → verify).
 - `formatComparison()` now shows per-test turns and duration deltas alongside cost.
 - `printSummary()` shows turns and duration columns.
 - `eval-store.test.ts` fixed pre-existing `_partial` file assertion bug.
 
 ### Fixed
+
 - Browser ref staleness — refs collected before page mutation (e.g. SPA navigation) are now detected and re-collected. Eliminates a class of flaky QA failures on dynamic sites.
 
 ## 0.3.9 — 2026-03-15
 
 ### Added
+
 - **`bin/gstack-config` CLI** — simple get/set/list interface for `~/.gstack/config.yaml`. Used by update-check and upgrade skill for persistent settings (auto_upgrade, update_check).
 - **Smart update check** — 12h cache TTL (was 24h), exponential snooze backoff (24h → 48h → 1 week) when user declines upgrades, `update_check: false` config option to disable checks entirely. Snooze resets when a new version is released.
 - **Auto-upgrade mode** — set `auto_upgrade: true` in config or `GSTACK_AUTO_UPGRADE=1` env var to skip the upgrade prompt and update automatically.
@@ -2011,6 +2061,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - 25 new tests: 11 for gstack-config CLI, 14 for snooze/config paths in update-check.
 
 ### Changed
+
 - README upgrade/troubleshooting sections simplified to reference `/gstack-upgrade` instead of long paste commands.
 - Upgrade skill template bumped to v1.1.0 with `Write` tool permission for config editing.
 - All SKILL.md preambles updated with new upgrade flow description.
@@ -2018,6 +2069,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 ## 0.3.8 — 2026-03-14
 
 ### Added
+
 - **TODOS.md as single source of truth** — merged `TODO.md` (roadmap) and `TODOS.md` (near-term) into one file organized by skill/component with P0-P4 priority ordering and a Completed section.
 - **`/ship` Step 5.5: TODOS.md management** — auto-detects completed items from the diff, marks them done with version annotations, offers to create/reorganize TODOS.md if missing or unstructured.
 - **Cross-skill TODOS awareness** — `/plan-ceo-review`, `/plan-eng-review`, `/retro`, `/review`, and `/qa` now read TODOS.md for project context. `/retro` adds Backlog Health metric (open counts, P0/P1 items, churn).
@@ -2029,9 +2081,11 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - Static validation tests for `TODOS-format.md` references across skills.
 
 ### Fixed
+
 - **`.gitignore` append failures silently swallowed** — `ensureStateDir()` bare `catch {}` replaced with ENOENT-only silence; non-ENOENT errors (EACCES, ENOSPC) logged to `.gstack/browse-server.log`.
 
 ### Changed
+
 - `TODO.md` deleted — all items merged into `TODOS.md`.
 - `/ship` Step 3.75 and `/review` Step 5 now reference reply templates and escalation detection from `greptile-triage.md`.
 - `/ship` Step 6 commit ordering includes TODOS.md in the final commit alongside VERSION + CHANGELOG.
@@ -2040,12 +2094,14 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 ## 0.3.7 — 2026-03-14
 
 ### Added
+
 - **Screenshot element/region clipping** — `screenshot` command now supports element crop via CSS selector or @ref (`screenshot "#hero" out.png`, `screenshot @e3 out.png`), region clip (`screenshot --clip x,y,w,h out.png`), and viewport-only mode (`screenshot --viewport out.png`). Uses Playwright's native `locator.screenshot()` and `page.screenshot({ clip })`. Full page remains the default.
 - 10 new tests covering all screenshot modes (viewport, CSS, @ref, clip) and error paths (unknown flag, mutual exclusion, invalid coords, path validation, nonexistent selector).
 
 ## 0.3.6 — 2026-03-14
 
 ### Added
+
 - **E2E observability** — heartbeat file (`~/.gstack-dev/e2e-live.json`), per-run log directory (`~/.gstack-dev/e2e-runs/{runId}/`), progress.log, per-test NDJSON transcripts, persistent failure transcripts. All I/O non-fatal.
 - **`bun run eval:watch`** — live terminal dashboard reads heartbeat + partial eval file every 1s. Shows completed tests, current test with turn/tool info, stale detection (>10min), `--tail` for progress.log.
 - **Incremental eval saves** — `savePartial()` writes `_partial-e2e.json` after each test completes. Crash-resilient: partial results survive killed runs. Never cleaned up.
@@ -2064,6 +2120,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - `test/helpers/skill-parser.ts` — `getRemoteSlug()` for git remote detection.
 
 ### Fixed
+
 - **Browse binary discovery broken for agents** — replaced `find-browse` indirection with explicit `browse/dist/browse` path in SKILL.md setup blocks.
 - **Update check exit code 1 misleading agents** — added `|| true` to prevent non-zero exit when no update available.
 - **browse/SKILL.md missing setup block** — added `{{BROWSE_SETUP}}` placeholder.
@@ -2071,6 +2128,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - Planted-bug eval reliability — simplified prompts, lowered detection baselines, resilient to max_turns flakes.
 
 ### Changed
+
 - **Template system expanded** — `{{UPDATE_CHECK}}` and `{{BROWSE_SETUP}}` placeholders in `gen-skill-docs.ts`. All browse-using skills generate from single source of truth.
 - Enriched 14 command descriptions with specific arg formats, valid values, error behavior, and return types.
 - Setup block checks workspace-local path first (for development), falls back to global install.
@@ -2080,6 +2138,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 ## 0.3.3 — 2026-03-13
 
 ### Added
+
 - **SKILL.md template system** — `.tmpl` files with `{{COMMAND_REFERENCE}}` and `{{SNAPSHOT_FLAGS}}` placeholders, auto-generated from source code at build time. Structurally prevents command drift between docs and code.
 - **Command registry** (`browse/src/commands.ts`) — single source of truth for all browse commands with categories and enriched descriptions. Zero side effects, safe to import from build scripts and tests.
 - **Snapshot flags metadata** (`SNAPSHOT_FLAGS` array in `browse/src/snapshot.ts`) — metadata-driven parser replaces hand-coded switch/case. Adding a flag in one place updates the parser, docs, and tests.
@@ -2099,6 +2158,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - `.env.example` template for API key configuration
 
 ### Changed
+
 - Build now runs `gen:skill-docs` before compiling binaries
 - `parseSnapshotArgs` is metadata-driven (iterates `SNAPSHOT_FLAGS` instead of switch/case)
 - `server.ts` imports command sets from `commands.ts` instead of declaring inline
@@ -2107,12 +2167,14 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 ## 0.3.2 — 2026-03-13
 
 ### Fixed
+
 - Cookie import picker now returns JSON instead of HTML — `jsonResponse()` referenced `url` out of scope, crashing every API call
 - `help` command routed correctly (was unreachable due to META_COMMANDS dispatch ordering)
 - Stale servers from global install no longer shadow local changes — removed legacy `~/.claude/skills/gstack` fallback from `resolveServerScript()`
 - Crash log path references updated from `/tmp/` to `.gstack/`
 
 ### Added
+
 - **Diff-aware QA mode** — `/qa` on a feature branch auto-analyzes `git diff`, identifies affected pages/routes, detects the running app on localhost, and tests only what changed. No URL needed.
 - **Project-local browse state** — state file, logs, and all server state now live in `.gstack/` inside the project root (detected via `git rev-parse --show-toplevel`). No more `/tmp` state files.
 - **Shared config module** (`browse/src/config.ts`) — centralizes path resolution for CLI and server, eliminates duplicated port/state logic
@@ -2131,6 +2193,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - CONTRIBUTING.md with quick start, dev mode explanation, and instructions for testing branches in other repos
 
 ### Changed
+
 - State file location: `.gstack/browse.json` (was `/tmp/browse-server.json`)
 - Log files location: `.gstack/browse-{console,network,dialog}.log` (was `/tmp/browse-*.log`)
 - Atomic state file writes: `.json.tmp` → rename (prevents partial reads)
@@ -2142,6 +2205,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - README updated with Greptile setup instructions, diff-aware QA examples, and revised demo transcript
 
 ### Removed
+
 - `CONDUCTOR_PORT` magic offset (`browse_port = CONDUCTOR_PORT - 45600`)
 - Port scan range 9400-9409
 - Legacy fallback to `~/.claude/skills/gstack/browse/src/server.ts`
